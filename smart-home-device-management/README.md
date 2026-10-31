@@ -14,20 +14,7 @@ The coordinator function `run_device_pipeline()` orchestrates the workflow:
 
 Each agent has its own `Agent` instance, system prompt, Bedrock model configuration, and tool. The coordinator passes the output from one stage to the next.
 
-## Project structure
-
-```text
-smart-home-device-management/
-├── README.md
-├── .env.example
-├── smart_home_device_mgmt.py
-└── resources/
-    ├── architecture.svg
-    ├── smart_home_agent_output1.png
-    └── smart_home_agent_output2.png
-```
-
-The two terminal screenshots are referenced below. Add your captured terminal images to `resources/` using those exact filenames.
+The full code can be found at ![smart_home_device_mgmt.py](Resources/smart_home_device_mgmt.py).
 
 ## Requirements
 
