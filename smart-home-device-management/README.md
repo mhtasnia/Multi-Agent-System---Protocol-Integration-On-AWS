@@ -4,7 +4,7 @@ A completed implementation of the Module 1 multi-agent architecture exercise. Th
 
 ## Architecture
 
-![Smart Home Agent Architecture](resources/architecture.svg)
+![Smart Home Agent Architecture](smart-home-device-management/Resources/architecture.svg)
 
 The coordinator function `run_device_pipeline()` orchestrates the workflow:
 
@@ -235,11 +235,11 @@ Add your two terminal screenshots to the `resources` folder:
 
 ### Run output 1
 
-![Smart Home Agent terminal output — first capture](resources/smart_home_agent_output1.png)
+![Smart Home Agent terminal output — first capture](smart-home-device-management/Resources/smart_home_agent_output1.png)
 
 ### Run output 2
 
-![Smart Home Agent terminal output — second capture](resources/smart_home_agent_output2.png)
+![Smart Home Agent terminal output — second capture](smart-home-device-management/Resources/smart_home_agent_output2.png)
 
 ## Files and safety
 
