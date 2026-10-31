@@ -1,194 +1,249 @@
-# strands-agentcore-function-calling
+# Smart Home Device Management — 3-Agent Architecture
 
-WanderBot is a travel assistant agent built with the Strands SDK and deployed on Amazon Bedrock AgentCore Runtime. It answers questions about flights, hotels and currency conversion by calling ordinary Python functions that read from local JSON files in `datasets/`, with no external APIs involved. The exercise is about function calling: exposing plain functions as tools, and writing the docstrings that tell the model which of them to select and what arguments to pass.
+A completed implementation of the Module 1 multi-agent architecture exercise. The system uses three specialized Strands agents, backed by Amazon Bedrock, to monitor smart-home device readings, diagnose predefined issues, and send simulated corrective commands.
 
-## Tools
+## Architecture
 
-The agent is given four tools. One is built in, three are custom functions defined in `starter.py`.
+![Smart Home Agent Architecture](resources/architecture.svg)
 
-`current_time` is imported from `strands_tools` and passed straight into the agent's `tools` list. It supplies the current date and time in UTC, which is what lets the agent resolve relative dates before it calls anything else.
+The coordinator function `run_device_pipeline()` orchestrates the workflow:
 
-```python
-@tool
-def search_flights(origin: str, destination: str, date: str) -> str
-```
+1. **Device Monitor Agent** calls `read_sensor_data()` and returns sensor data as JSON.
+2. **Diagnostics Agent** passes the sensor JSON to `diagnose_issue()` and returns detected issues as JSON.
+3. **Command Agent** calls `send_device_command()` for each detected issue and returns a command confirmation as JSON.
 
-Reads `datasets/flights.json` and filters for records whose `origin`, `destination` and `date` all match, comparing airport codes case-insensitively and the date as an exact string. It returns a formatted table of the matching flights with `flight_number`, `departure_time`, `arrival_time`, `cabin_class`, `price_usd`, `available_seats`, `gate` and `aircraft`, plus a status marker drawn from `status` (`SCHEDULED`, `DELAYED` or `CANCELLED`). When nothing matches it returns a short not-found message suggesting adjacent dates rather than raising.
-
-```python
-@tool
-def search_hotels(city: str, max_price_usd: float = 9999.0) -> str
-```
-
-Reads `datasets/hotels.json` and keeps hotels whose `city` matches, whose `available` flag is true, and whose `price_per_night_usd` is at or below `max_price_usd`. Results are sorted cheapest first and rendered with `name`, `hotel_id`, star rating, price, `room_types`, the first four `amenities`, check-in and check-out times, and `cancellation_policy`. The default of 9999 means an unfiltered query, and the function uses that same value as the threshold for whether to mention a budget in its output.
-
-```python
-@tool
-def get_exchange_rate(from_currency: str, to_currency: str, amount: float = 1.0) -> str
-```
-
-Reads `datasets/exchange_rates.json`, which stores rates against a USD base. The function injects `USD: 1.0` into the rate table at runtime (the file itself lists only the fifteen non-USD currencies) and computes the cross rate by pivoting through USD, so any supported pair works in either direction. It returns the rate, the converted amount, and the `last_updated` date from the file. An unsupported code produces a message listing every code that is accepted.
-
-The docstrings on these three functions are not documentation for human readers. Strands turns each one into the tool schema the model sees, so the docstring is the only thing that tells the model an airport is an IATA code rather than a city name, or that a date has to be ISO formatted. A vague docstring produces wrong arguments or a skipped tool call. This is what `search_flights` declares:
-
-```
-    Args:
-        origin      : IATA airport code for the departure airport.
-                      Examples: 'LHR' (London), 'JFK' (New York), 'BCN' (Barcelona),
-                      'SYD' (Sydney), 'DXB' (Dubai), 'MIA' (Miami), 'LAX' (Los Angeles)
-        destination : IATA airport code for the arrival airport.
-                      Examples: 'CDG' (Paris), 'FCO' (Rome), 'NRT' (Tokyo Narita),
-                      'LHR' (London), 'MIA' (Miami), 'LAX' (Los Angeles), 'CUN' (Cancun)
-        date        : Travel date in YYYY-MM-DD format. Example: '2026-03-15'
-```
-
-`search_hotels` does the same job for its optional parameter, stating that `city` must be an exact city name and that `max_price_usd` "defaults to 9999 (no price limit)" with example values of 100, 200 and 300. `get_exchange_rate` names the standard outright, asking for "ISO 4217 source currency code (e.g. 'USD', 'EUR', 'GBP')", and lists all sixteen supported codes above the `Args` block so the model can decline an unsupported pair without a round trip.
-
-## What was implemented
-
-The starter file shipped with five `TODO` markers. All five are now complete.
-
-1. `tool` is imported from `strands` and `current_time` from `strands_tools`.
-2. `search_flights` carries the `@tool` decorator and a docstring that pins `origin` and `destination` to IATA codes and `date` to `YYYY-MM-DD`, with worked examples for each.
-3. `search_hotels` carries the `@tool` decorator and a docstring covering the required `city` and the optional `max_price_usd`, including what the 9999 default means.
-4. `get_exchange_rate` carries the `@tool` decorator and a docstring specifying ISO 4217 codes and enumerating the supported set.
-5. The `invoke` entrypoint builds the `Agent` with `model`, `SYSTEM_PROMPT` and all four tools in the `tools` list, in the order `current_time`, `search_flights`, `search_hotels`, `get_exchange_rate`, then calls `agent(user_message)` and returns the result.
-
-The agent is constructed inside `invoke` rather than at module scope, so each request gets a fresh agent with no carried-over conversation state. The model is `us.amazon.nova-2-lite-v1:0`, a cross-region inference profile, wrapped in `BedrockModel`.
+Each agent has its own `Agent` instance, system prompt, Bedrock model configuration, and tool. The coordinator passes the output from one stage to the next.
 
 ## Project structure
 
-![VS Code explorer showing the repository tree with datasets, screenshots, starter.py and the generated .venv and .bedrock_agentcore folders](screenshots/file_tree.png)
-
-```
-starter.py                  Agent definition, three @tool functions, entrypoint
-requirements.txt            Python dependencies
-datasets/
-  flights.json              15 flight records
-  hotels.json               10 hotel records
-  exchange_rates.json       USD-based rates for 15 currencies
-screenshots/
-  response.png
-  server_log.png
-  file_tree.png
-.dockerignore               Build context exclusions
-.venv/                      generated by python -m venv
-__pycache__/                generated
-.bedrock_agentcore/         generated by agentcore configure (holds the Dockerfile)
-.bedrock_agentcore.yaml     generated by agentcore configure
+```text
+smart-home-device-management/
+├── README.md
+├── .env.example
+├── smart_home_device_mgmt.py
+└── resources/
+    ├── architecture.svg
+    ├── smart_home_agent_output1.png
+    └── smart_home_agent_output2.png
 ```
 
-The four generated paths do not need to be committed. `.bedrock_agentcore.yaml` in particular records an AWS account ID, an execution role ARN and an absolute path from the machine that ran `configure`.
+The two terminal screenshots are referenced below. Add your captured terminal images to `resources/` using those exact filenames.
 
-Dataset paths are resolved against the source file rather than the working directory, so the agent finds `datasets/` whether it is started from the repo root, from somewhere else on disk, or from inside the deployed container where the code lives at `/app`:
+## Requirements
 
-```python
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "datasets"
-```
+- Python 3.11 or newer
+- An AWS account or course lab account with access to Amazon Bedrock
+- A Bedrock model/inference profile enabled for the selected AWS Region
+- Strands Agents SDK
+- AWS credentials available to the Python process
 
 ## Setup
 
-Python 3.12 or later. From the repo root in PowerShell:
+Open a terminal in the project folder.
+
+### 1. Create and activate a virtual environment (optional)
+
+Linux/macOS:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+.venv\Scripts\Activate.ps1
 ```
 
-On macOS or Linux the activate line is `source .venv/bin/activate` and the rest is unchanged.
+### 2. Install dependencies
 
-`requirements.txt` lists `strands-agents`, `strands-agents-tools` and `bedrock-agentcore`, unpinned, so a fresh install picks up current versions of all three.
+```bash
+python -m pip install --upgrade pip
+python -m pip install strands-agents boto3 python-dotenv
+```
 
-AWS credentials have to resolve through the standard boto3 chain before anything will run. Put an access key and secret in `~/.aws/credentials` under a `[default]` section, and a `region` in `~/.aws/config`. On Windows that is `%USERPROFILE%\.aws\`. Verify with:
+If your Udacity classroom already provides the dependencies, you can use that environment without reinstalling them.
+
+### 3. Create your environment file
+
+Linux/macOS:
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell:
 
 ```powershell
-python -c "import boto3; print(boto3.client('sts').get_caller_identity())"
+Copy-Item .env.example .env
 ```
 
-An account and ARN come back if the chain resolved. Nova 2 Lite also needs to be enabled for the account in the Bedrock console under Model access, otherwise the failure arrives at invoke time as an access denied error rather than at startup.
+The demo `.env.example` contains:
 
-## Configure and run
-
-```powershell
-agentcore configure -e starter.py -n WanderBot -dt container -rf requirements.txt --disable-memory -er $ER -ecr $ECR_URI --non-interactive
+```dotenv
+AWS_REGION=us-east-1
+MODEL_ID=us.anthropic.claude-sonnet-4-6
 ```
 
-`$ER` is the ARN of the AgentCore execution role and `$ECR_URI` the URI of the ECR repository the image is pushed to. Set both before running the command. Dropping the `-er` and `-ecr` flags along with `--non-interactive` lets `configure` prompt for them and create the resources itself, which is the easier path the first time. The command writes `.bedrock_agentcore.yaml` and `.bedrock_agentcore/WanderBot/Dockerfile`.
+Update `MODEL_ID` if your AWS lab specifically provides a different supported model ID or inference profile. A model ID being listed in a file does not guarantee that the current AWS account has access to it.
 
-Start the local dev server, which listens on port 8080:
+### 4. Configure AWS credentials
 
-```powershell
-agentcore dev
+For the Udacity lab, use the classroom's **Load AWS Credentials** option if provided. The credentials should be available in the terminal environment before you run the script.
+
+For a personal AWS environment, configure credentials using your normal AWS CLI profile:
+
+```bash
+aws configure
+aws sts get-caller-identity
 ```
 
-Leave that terminal running and invoke from a second one:
+For temporary credentials, all three values are required:
 
-```powershell
-agentcore invoke --dev '{\"message\": \"Find flights from BCN to FCO on 2026-03-20\"}'
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN`
+
+Do not commit real credentials, temporary lab credentials, or a populated `.env` file. Keep `.env` out of Git; commit only `.env.example`.
+
+## Run the exercise
+
+From the project root:
+
+```bash
+python smart_home_device_mgmt.py
 ```
 
-![PowerShell terminal showing agentcore invoke --dev with a flight query and the JSON response listing flight HZ-450 from Barcelona to Rome](screenshots/response.png)
+The program runs three sample scenarios:
 
-Prompts the datasets can actually answer, one per tool:
+| Device | Sensor condition | Expected diagnosis | Corrective action |
+|---|---|---|---|
+| `DEV-001` — Living Room Thermostat | Temperature is 92.5°F | `overheating` | `restart_device` |
+| `DEV-002` — Front Door Smart Lock | Connectivity is 12% | `firmware_issue` | `push_firmware_update` |
+| `DEV-003` — Doorbell Camera | Battery is 7% | `low_battery` | `send_recharge_notification` |
 
-```
-Find flights from BCN to FCO on 2026-03-20
-Show me hotels in Rome under $200 a night
-How much is 500 USD in JPY?
-What is the current date and time in UTC?
-```
+The sample tool implementations use predefined in-memory data. The command tool returns a simulated command confirmation; it does not operate a real thermostat, lock, or camera.
 
-The first matches `HZ-450`, Barcelona to Rome, 10:00 to 12:05, Economy, $145.00, 73 seats, gate G07, Airbus A321. The second matches Hotel Campo de' Fiori at $165 a night, four stars, available, and excludes Hotel de Russie at $490. The third uses the JPY rate of 149.50 against the USD base, giving 74,750.00 JPY. The fourth exercises the built-in tool with no dataset involved.
+## Learning notes
 
-Coverage is deliberately narrow. Flights run between BCN, DXB, JFK, LHR, MIA and SYD as origins and CDG, CUN, FCO, LAX, LHR, MIA and NRT as destinations, only on the dates 2026-03-15, 03-16, 03-18, 03-20, 03-21 and 03-25. Hotels exist in Barcelona, Tokyo, Rome and Dubai, and one of the ten is marked unavailable. Exchange rates cover EUR, GBP, JPY, AUD, CAD, CHF, SGD, HKD, NZD, SEK, NOK, DKK, AED, THB and MXN against USD. A query outside those bounds gets a clean not-found message, which is correct behaviour but easy to mistake for a broken tool.
+### 1. Coordinator pattern
 
-## Verifying tool calls
+A coordinator does not need to perform every task itself. It controls the sequence and passes the result of one specialized agent to the next:
 
-The dev server terminal logs every tool the model selects and the arguments it passed, which is the fastest way to tell whether a docstring is steering it correctly. A successful flight query prints `Tool #1: search_flights`, then the function's own log line `search_flights called: BCN → FCO on 2026-03-20`, then the model's answer, then `Invocation completed successfully` and `POST /invocations HTTP/1.1" 200 OK`.
-
-![Dev server log showing Tool #1 search_flights, the search_flights called line with BCN to FCO on 2026-03-20, the formatted flight answer, and a 200 OK on POST /invocations](screenshots/server_log.png)
-
-If the arguments in that log are wrong, a city name where an IATA code belongs or a date in the wrong format, the docstring is what needs fixing, not the function body. If no `Tool #` line appears at all, the model answered from its own knowledge and the docstring failed to convince it a tool was relevant.
-
-The line `Found credentials in shared credentials file: ~/.aws/credentials` appears near the top of the same log on startup and confirms the credential chain resolved. `starter.py` also prints `BASE_DIR=... exists=True` at import, which confirms the dataset directory was located.
-
-## Troubleshooting
-
-### agentcore dev fails with WinError 2
-
-The error reads `[WinError 2] The system cannot find the file specified` and names no executable, so it looks like a missing Docker or uvicorn before it looks like anything else. The toolkit shells out to `uv`, which is not installed with the other dependencies. Install it into the same virtualenv:
-
-```powershell
-python -m pip install uv
+```text
+Sensor data
+    |
+    v
+Device Monitor Agent
+    |  sensor JSON
+    v
+Diagnostics Agent
+    |  issue + device_id
+    v
+Command Agent
+    |  command confirmation
+    v
+Action report
 ```
 
-### Running the server without agentcore dev
+In this exercise, `run_device_pipeline(device_id)` is the coordinator.
 
-`agentcore invoke --dev` is an HTTP client, POSTing to `localhost:8080/invocations`, so `agentcore dev` is a convenience wrapper around starting the app. If it will not start, run the app directly and invoke against it as usual. `starter.py` calls `app.run()` under `if __name__ == "__main__"`, so this is enough:
+### 2. Specialized agents and tools
 
-```powershell
-python starter.py
+Each agent has a focused responsibility:
+
+- **Monitor:** retrieve sensor readings. It does not diagnose the root cause.
+- **Diagnostics:** apply the diagnostic rules to the sensor JSON.
+- **Command:** select and send the corrective action for each diagnosed issue.
+
+The tool factory functions (`_make_read_sensor_data_tool()`, `_make_diagnose_issue_tool()`, and `_make_send_device_command_tool()`) return functions decorated with Strands' `@tool`. The returned tool function is passed to the relevant agent's `tools` list.
+
+### 3. Passing structured data between agents
+
+The coordinator converts the monitor response to a Python dictionary, serializes it with `json.dumps()`, and includes it in the diagnostics prompt. The diagnosis is parsed into a dictionary so the coordinator can loop through the `issues` list.
+
+This keeps the handoff explicit:
+
+- Monitor → Diagnostics: complete sensor-data JSON.
+- Diagnostics → Command: device identifier and issue type.
+- Command → Coordinator: action confirmation JSON.
+
+### 4. System prompts and predictable output
+
+The agents initially returned conversational responses, Markdown tables, or explanations around the tool output. Those responses were useful to a person but could not be passed directly to `json.loads()`.
+
+The prompts were tightened to require:
+
+- calling the correct tool,
+- treating the tool result as the source of truth,
+- returning only the tool's JSON,
+- adding no explanations, Markdown, or code fences.
+
+This made the agent output suitable for the next programmatic step. A system prompt guides model behavior but is not an absolute guarantee, so the completed script also includes `parse_json_response()` as a defensive parser. It first attempts normal JSON parsing and then attempts to extract a JSON object if extra text appears.
+
+### 5. Model configuration
+
+`AWS_REGION` and `MODEL_ID` are loaded from `.env` using `python-dotenv`. The same `create_model()` helper is used by all three agents, with `temperature=0.0` to favor consistent outputs.
+
+The model ID must be supported and accessible in the AWS account and Region being used. If Bedrock reports that a model version is retired or unavailable, choose a currently supported model/inference profile that the lab account permits.
+
+### 6. Retry handling
+
+`run_agent_with_retry()` retries failed agent invocations up to three times, waiting 1, 2, and then 4 seconds between attempts. This is intended for transient service errors such as throttling. It does not fix invalid credentials, unavailable model IDs, or missing permissions.
+
+### 7. Deterministic diagnostic rules
+
+The diagnostic tool applies the predefined thresholds:
+
+| Issue | Reading | Rule |
+|---|---|---|
+| Overheating | Temperature | Greater than 85 |
+| Firmware issue | Connectivity | Less than 20 |
+| Low battery | Battery | Less than 10 |
+
+The command tool maps each issue to a predefined action. The tools contain the deterministic business logic; the agents coordinate and invoke them.
+
+## Troubleshooting notes
+
+### `ResourceNotFoundException` — model version has reached end of life
+
+The configured model ID may be retired or unavailable. Check the model ID and inference profile allowed by the course lab and set the supported value in `.env`.
+
+### `JSONDecodeError` at `json.loads()`
+
+The agent may have returned natural language or Markdown instead of JSON. Check the relevant agent's system prompt and inspect the response with:
+
+```python
+print("DEBUG RESPONSE:", repr(agent_response))
 ```
 
-The ASGI application object is the module-level `app` in `starter.py`, so uvicorn can serve it by name instead:
+The completed script's `parse_json_response()` provides a fallback, but the preferred solution is still to have each agent return only the tool's JSON result.
 
-```powershell
-python -m uvicorn starter:app --host 0.0.0.0 --port 8080 --reload
-```
+### `AccessDeniedException`
 
-### Broken venv shims
+Check that the AWS credentials are loaded and that the account/role has permission to invoke the selected Bedrock model. In a managed classroom, some permissions and model access may be controlled by the lab.
 
-Symptoms are `uv trampoline failed to canonicalize script path` and `Fatal error in launcher`, and the giveaway is that every `.exe` in `.venv\Scripts\` fails at once rather than just one. The cause is a virtualenv that was copied or moved between folders. Windows venvs hardcode absolute paths into their launcher shims and cannot be relocated. Calling through the interpreter with `python -m pip` bypasses the shim and gets you moving again, but the fix is to delete `.venv` and rebuild it in place with the setup commands above.
+### Credentials appear missing or expired
 
-### PowerShell quoting
+Reload the classroom credentials. Temporary credentials expire and must be refreshed. Do not copy credentials into source code or commit them to Git.
 
-Bash-style single quotes around a JSON payload do not survive PowerShell. The contents get re-parsed and split on spaces, and the command fails with `Got unexpected extra argument(s)`. Escaped double quotes inside single quotes work, which is the form used above. Building the payload as a hashtable avoids escaping entirely and handles apostrophes in the message text:
+## Terminal output screenshots
 
-```powershell
-$payload = @{ message = "Find flights from BCN to FCO on 2026-03-20" } | ConvertTo-Json -Compress
-agentcore invoke --dev $payload
-```
+Add your two terminal screenshots to the `resources` folder:
 
-Backslash line continuations in the exercise instructions are bash syntax. PowerShell ignores them and treats each fragment as a separate command. Put the command on one line, or use backticks for continuations.
+### Run output 1
+
+![Smart Home Agent terminal output — first capture](resources/smart_home_agent_output1.png)
+
+### Run output 2
+
+![Smart Home Agent terminal output — second capture](resources/smart_home_agent_output2.png)
+
+## Files and safety
+
+- `.env.example` is a safe configuration template. Copy it to `.env` for local use.
+- Do not commit `.env` or AWS credentials.
+- The sensor readings and corrective actions are demonstration data and simulated operations.
+- `architecture.svg` is the architecture diagram used by this README.
